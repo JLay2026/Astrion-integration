@@ -2,10 +2,10 @@
   "domain": "astrion",
   "name": "Astrion Home",
   "codeowners": ["yyqclhy"],
-  "version": "v1.4.2",
+  "version": "1.4.2-h1",
   "iot_class": "local_push",
   "config_flow": true,
-  "documentation": "https://github.com/yyqclhy/Astrion-integration",
-  "issue_tracker": "https://github.com/yyqclhy/Astrion-integration/issues",
+  "documentation": "https://github.com/JLay2026/Astrion-integration",
+  "issue_tracker": "https://github.com/JLay2026/Astrion-integration/issues",
   "dependencies": ["http"]
 }

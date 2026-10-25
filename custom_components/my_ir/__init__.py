@@ -287,6 +287,7 @@ def handle_send_command(call: ServiceCall) -> None:
                  entity_id, parent_serial, actual_ir_code)
 
 # ====================== 4. WebSocket 接口定义 ======================
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/submit_pair_data",
     vol.Required("code"): cv.string,
@@ -342,6 +343,7 @@ async def websocket_submit_pair_data(hass: HomeAssistant, connection, msg):
         "message": "Gateway added to pending list, please confirm in HA configuration"
     })
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/get_device_codes",
     vol.Required("entity_id"): cv.entity_id,
@@ -385,6 +387,7 @@ async def websocket_get_device_codes(hass: HomeAssistant, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/get_harmony_config",
     vol.Optional("entity_id"): cv.string,
@@ -397,11 +400,7 @@ async def websocket_get_harmony_config(hass: HomeAssistant, connection, msg):
     如果不传，返回所有配置文件（兼容旧版）。
     """
     try:
-        config_dir = hass.config.config_dir
-        pattern = os.path.join(config_dir, HARMONY_CONF_PATTERN)
-        all_files = sorted(glob.glob(pattern))
-
-        # 如果传了 entity_id，通过实体注册表查 unique_id 来匹配
+        # Resolve the optional entity filter on the event loop (registry access).
         target_unique_id = None
         entity_id = msg.get("entity_id")
         if entity_id:
@@ -412,23 +411,27 @@ async def websocket_get_harmony_config(hass: HomeAssistant, connection, msg):
                 target_unique_id = entry.unique_id
                 _LOGGER.debug("Harmony entity %s → unique_id: %s", entity_id, target_unique_id)
 
-        hubs = []
-        for path in all_files:
-            basename = os.path.basename(path)
-            file_id = basename.replace("harmony_", "").replace(".conf", "")
+        config_dir = hass.config.config_dir
 
-            # 如果指定了 unique_id，只匹配对应文件
-            if target_unique_id and file_id != target_unique_id:
-                continue
+        def _read_harmony_confs():
+            """Blocking glob + file reads, run in the executor."""
+            pattern = os.path.join(config_dir, HARMONY_CONF_PATTERN)
+            result = []
+            for path in sorted(glob.glob(pattern)):
+                basename = os.path.basename(path)
+                file_id = basename.replace("harmony_", "").replace(".conf", "")
+                if target_unique_id and file_id != target_unique_id:
+                    continue
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                result.append({
+                    "hub_name": file_id,
+                    "source_file": basename,
+                    "config": data
+                })
+            return result
 
-            _LOGGER.info("Reading Harmony config file: %s", path)
-            with open(path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            hubs.append({
-                "hub_name": file_id,
-                "source_file": basename,
-                "config": data
-            })
+        hubs = await hass.async_add_executor_job(_read_harmony_confs)
 
         connection.send_result(msg["id"], {"hubs": hubs})
 
@@ -437,6 +440,7 @@ async def websocket_get_harmony_config(hass: HomeAssistant, connection, msg):
         connection.send_error(msg["id"], "read_error", str(e))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/get_broadlink_codes",
     vol.Required("entity_id"): cv.entity_id,

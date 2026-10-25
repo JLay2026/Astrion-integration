@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Install pinned test harness
+        run: pip install -r requirements_test.txt
+      - name: Hardening regression tests
+        run: python -m pytest -q -p no:logging
+
+  # A test suite that cannot detect a missing patch is decoration. Run the same
+  # tests against the unmodified upstream release and require each security
+  # test to FAIL there.
+  negative-control:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_TAG: v1.4.2
+      UPSTREAM_SHA: 66bf40fc4b5e886fae783ff238d705d2e257ea4d
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Install pinned test harness
+        run: pip install -r requirements_test.txt
+      - name: Fetch unmodified upstream at the pinned commit
+        run: |
+          git clone --quiet https://github.com/yyqclhy/Astrion-integration.git /tmp/up
+          git -C /tmp/up checkout --quiet "$UPSTREAM_SHA"
+          # Guard: an empty or wrong baseline makes this control meaningless.
+          grep -q '"version": "v1.4.2"' /tmp/up/custom_components/my_ir/manifest.json
+          grep -q 'API_BASE_URL' /tmp/up/custom_components/my_ir/config_flow.py
+          cp -r tests pytest.ini /tmp/up/
+      - name: Each security test must fail on upstream
+        working-directory: /tmp/up
+        run: |
+          fail=0
+          for t in test_no_options_flow test_no_outbound_http_anywhere test_ws_rejects_non_admin; do
+            rc=0
+            python -m pytest -q -p no:logging "tests/test_hardening.py::$t" >/dev/null 2>&1 || rc=$?
+            if [ "$rc" -eq 1 ]; then
+              echo "ok   $t fails on upstream (as it must)"
+            else
+              echo "::error::$t did not fail on upstream (exit $rc) - the test cannot detect a missing patch"
+              fail=1
+            fi
+          done
+          exit $fail
+
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Install linters
+        run: pip install ruff==0.15.12 bandit==1.8.6
+      - name: Ruff (syntax and undefined names only, upstream style left alone)
+        run: ruff check --select E9,F63,F7,F82 custom_components/
+      - name: Bandit (medium severity and above)
+        run: bandit -r -ll custom_components/
+      - name: No outbound HTTP clients
+        run: |
+          if grep -rnE 'async_get_clientsession|aiohttp|lifex360|^\s*(import|from)\s+(requests|urllib|httpx)\b' custom_components/my_ir/*.py; then
+            echo "::error::outbound HTTP client or vendor API reference found"
+            exit 1
+          fi
+          echo "no outbound HTTP clients"
+
+  # Advisory until both report clean: upstream's layout (folder my_ir, domain
+  # astrion; unsorted manifest keys) may not satisfy them. Results are visible
+  # in the run; promotion to required is a deliberate later change.
+  hassfest:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Present the integration under its domain name, as HACS installs it
+        run: mv custom_components/my_ir custom_components/astrion
+      - uses: home-assistant/actions/hassfest@50baf3a307f87100cf550d4ae127746595030d5d # master 2026-10-12
+
+  hacs:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main 2026-06-08
+        with:
+          category: integration
+          ignore: brands description topics
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: reviewdog/action-actionlint@50842263c20a7c46bd0065b9e624d3c569db061e # v1.73.0
+        with:
+          reporter: github-check
+          fail_level: error

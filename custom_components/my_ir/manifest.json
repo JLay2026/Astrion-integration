@@ -1,7 +1,7 @@
 {
   "domain": "astrion",
   "name": "Astrion Home",
-  "codeowners": ["yyqclhy"],
+  "codeowners": ["@yyqclhy"],
   "version": "1.4.2-h1",
   "iot_class": "local_push",
   "config_flow": true,

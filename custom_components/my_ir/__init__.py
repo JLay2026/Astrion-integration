@@ -27,6 +27,9 @@ MAX_BROADLINK_KEYS_PER_DEVICE = 200
 MAX_BROADLINK_CODE_LENGTH = 16_384
 BROADLINK_BROADCAST_SERIAL = "broadlink_broadcast"
 
+# Set up from config entries only; nothing is read from YAML.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 # ====================== 1. 核心初始化 ======================
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     _LOGGER.info("[Startup] async_setup called! config=%s", config)

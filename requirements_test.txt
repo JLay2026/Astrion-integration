@@ -1,0 +1,2 @@
+# Pinned test harness (bundles a matching homeassistant core).
+pytest-homeassistant-custom-component==0.13.316
